@@ -25,6 +25,9 @@ from database.db_loader import load_to_db
 # -----------------------------------------
 # DATABASE CONNECTION HANDLER
 # -----------------------------------------
+# -----------------------------------------
+# DATABASE CONNECTION HANDLER
+# -----------------------------------------
 def get_engine():
     """
     Returns SQLAlchemy engine using Streamlit Secrets only
@@ -45,6 +48,7 @@ def get_engine():
 
 # Create engine
 engine = get_engine()
+
 
 # -----------------------------------------
 # PAGE CONFIG
