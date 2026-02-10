@@ -23,6 +23,43 @@ from analytics.risk_engine import assign_risk
 from database.db_loader import load_to_db
 
 # -----------------------------------------
+# DATABASE CONNECTION HANDLER
+# -----------------------------------------
+def get_engine():
+    """
+    Returns SQLAlchemy engine.
+    - Uses Streamlit Secrets on cloud
+    - Uses config.yaml locally
+    """
+    try:
+        # ✅ STREAMLIT CLOUD (Secrets)
+        if "DB_HOST" in st.secrets:
+            return create_engine(
+                f"mysql+pymysql://{st.secrets['DB_USER']}:"
+                f"{st.secrets['DB_PASSWORD']}@"
+                f"{st.secrets['DB_HOST']}:"
+                f"{str(st.secrets['DB_PORT'])}/"
+                f"{st.secrets['DB_NAME']}"
+            )
+        
+        # ✅ LOCAL MACHINE (config.yaml)
+        else:
+            import yaml
+            with open("config.yaml", "r") as f:
+                cfg = yaml.safe_load(f)
+            mysql = cfg["mysql"]
+            return create_engine(
+                f"mysql+pymysql://{mysql['user']}:{mysql['password']}@"
+                f"{mysql['host']}/{mysql['database']}"
+            )
+    except Exception as e:
+        st.error(f"❌ Database connection setup failed: {e}")
+        raise
+
+# Create engine
+engine = get_engine()
+
+# -----------------------------------------
 # PAGE CONFIG
 # -----------------------------------------
 st.set_page_config(
@@ -404,18 +441,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------
-# DATABASE CONNECTION
-# -----------------------------------------
-engine = create_engine(
-    "mysql+pymysql://root:mysql123@localhost/card_misuse_analytics"
-)
-
-# -----------------------------------------
 # LOAD DATA FROM DATABASE
 # -----------------------------------------
 @st.cache_data(ttl=60)
 def load_data():
-    return pd.read_sql("SELECT * FROM vw_latest_transactions", engine)
+    """Load transactions from database with error handling"""
+    try:
+        return pd.read_sql("SELECT * FROM vw_latest_transactions", engine)
+    except Exception as e:
+        st.error(f"❌ Database query failed: {e}")
+        st.info("Please check your database connection and ensure vw_latest_transactions exists")
+        return pd.DataFrame()
 
 df = load_data()
 
@@ -448,69 +484,71 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-if uploaded_file:
-    try:
-        with st.spinner("Processing data..."):
-            df_new = load_file(uploaded_file)
+    if uploaded_file:
+        try:
+            with st.spinner("Processing data..."):
+                df_new = load_file(uploaded_file)
 
-            # 🔒 FINAL VALIDATION (UI-level)
-            required_cols = {"transaction_id", "customer_id", "amount"}
-            missing = required_cols - set(df_new.columns)
+                # 🔒 FINAL VALIDATION (UI-level)
+                required_cols = {"transaction_id", "customer_id", "amount"}
+                missing = required_cols - set(df_new.columns)
 
-            if missing:
-                st.error(f"Uploaded file missing required columns: {missing}")
-                st.stop()
+                if missing:
+                    st.error(f"Uploaded file missing required columns: {missing}")
+                    st.stop()
 
-            df_new = assign_risk(df_new)
-            load_to_db(df_new, uploaded_file.name)
+                df_new = assign_risk(df_new)
+                load_to_db(df_new, uploaded_file.name)
 
-        st.success("✓ Data uploaded successfully!")
-        st.rerun()
+            st.success("✓ Data uploaded successfully!")
+            st.rerun()
 
-    except Exception as e:
-        st.error(f"Upload failed: {e}")
-        st.stop()
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+            st.stop()
 
     st.markdown("<hr style='border: none; border-top: 2px solid #2d4a6d; margin: 20px 0;'>", unsafe_allow_html=True)
     
     # Recent Transactions in Sidebar
-    st.markdown("### 📊 RECENT TRANSACTIONS")
-    
-    # Show last 5 transactions
-    recent_txns = df.head(5)
-    
-    for idx, row in recent_txns.iterrows():
-        # Determine risk badge class
-        risk_class = "risk-normal"
-        if row.get('risk_level') == "Medium Risk":
-            risk_class = "risk-medium"
-        elif row.get('risk_level') == "High Risk":
-            risk_class = "risk-high"
+    if not df.empty:
+        st.markdown("### 📊 RECENT TRANSACTIONS")
         
-        st.markdown(f"""
-            <div class='sidebar-txn-card'>
-                <div class='txn-id'>ID: {row.get('transaction_id', 'N/A')}</div>
-                <div class='txn-detail'><b>Customer:</b> {row.get('customer_id', 'N/A')}</div>
-                <div class='txn-detail'><b>Amount:</b> ₹{row.get('amount', 0):,.0f}</div>
-                <div class='txn-detail'><b>City:</b> {row.get('city', 'N/A')}</div>
-                <div class='txn-detail'><b>Channel:</b> {row.get('channel', 'N/A')}</div>
-                <span class='risk-badge {risk_class}'>{row.get('risk_level', 'Normal')}</span>
-            </div>
-        """, unsafe_allow_html=True)
+        # Show last 5 transactions
+        recent_txns = df.head(5)
+        
+        for idx, row in recent_txns.iterrows():
+            # Determine risk badge class
+            risk_class = "risk-normal"
+            if row.get('risk_level') == "Medium Risk":
+                risk_class = "risk-medium"
+            elif row.get('risk_level') == "High Risk":
+                risk_class = "risk-high"
+            
+            st.markdown(f"""
+                <div class='sidebar-txn-card'>
+                    <div class='txn-id'>ID: {row.get('transaction_id', 'N/A')}</div>
+                    <div class='txn-detail'><b>Customer:</b> {row.get('customer_id', 'N/A')}</div>
+                    <div class='txn-detail'><b>Amount:</b> ₹{row.get('amount', 0):,.0f}</div>
+                    <div class='txn-detail'><b>City:</b> {row.get('city', 'N/A')}</div>
+                    <div class='txn-detail'><b>Channel:</b> {row.get('channel', 'N/A')}</div>
+                    <span class='risk-badge {risk_class}'>{row.get('risk_level', 'Normal')}</span>
+                </div>
+            """, unsafe_allow_html=True)
     
     st.markdown("<hr style='border: none; border-top: 2px solid #2d4a6d; margin: 20px 0;'>", unsafe_allow_html=True)
     
     # Download Section
-    st.markdown("### 💾 DOWNLOAD DATA")
-    
-    csv_data = convert_df_to_csv(df)
-    
-    st.download_button(
-        label="📥 Download Full Dataset (CSV)",
-        data=csv_data,
-        file_name=f"card_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-    )
+    if not df.empty:
+        st.markdown("### 💾 DOWNLOAD DATA")
+        
+        csv_data = convert_df_to_csv(df)
+        
+        st.download_button(
+            label="📥 Download Full Dataset (CSV)",
+            data=csv_data,
+            file_name=f"card_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+        )
     
     st.markdown("<hr style='border: none; border-top: 2px solid #2d4a6d; margin: 20px 0;'>", unsafe_allow_html=True)
     
@@ -524,6 +562,11 @@ if uploaded_file:
             <p>📅 {datetime.now().strftime('%B %d, %Y')}</p>
         </div>
     """, unsafe_allow_html=True)
+
+# Check if data loaded successfully
+if df.empty:
+    st.warning("⚠️ No data available. Please check your database connection or upload data.")
+    st.stop()
 
 # -----------------------------------------
 # HEADER
@@ -835,6 +878,6 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("""
     <div style='text-align: center; padding: 40px 0; color: #7d8a9e; font-size: 12px;'>
         <p style='margin: 0; font-weight: 600;'>© 2024 Credit Card Analytics Dashboard</p>
-        <p style='margin: 5px 0 0 0;'>Powered by  Streamlit & MySQL | Real-time Fraud Detection System</p>
+        <p style='margin: 5px 0 0 0;'>Powered by Streamlit & MySQL | Real-time Fraud Detection System</p>
     </div>
 """, unsafe_allow_html=True)
