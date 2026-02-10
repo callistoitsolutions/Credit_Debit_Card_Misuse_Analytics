@@ -8,3 +8,4 @@ plotly
 sqlalchemy
 pymysql
 PyYAML
+cryptography
