@@ -27,34 +27,21 @@ from database.db_loader import load_to_db
 # -----------------------------------------
 def get_engine():
     """
-    Returns SQLAlchemy engine.
-    - Uses Streamlit Secrets on cloud
-    - Uses config.yaml locally
+    Returns SQLAlchemy engine using Streamlit Secrets only
     """
     try:
-        # ✅ STREAMLIT CLOUD (Secrets)
-        if "DB_HOST" in st.secrets:
-            return create_engine(
-                f"mysql+pymysql://{st.secrets['DB_USER']}:"
-                f"{st.secrets['DB_PASSWORD']}@"
-                f"{st.secrets['DB_HOST']}:"
-                f"{str(st.secrets['DB_PORT'])}/"
-                f"{st.secrets['DB_NAME']}"
-            )
-        
-        # ✅ LOCAL MACHINE (config.yaml)
-        else:
-            import yaml
-            with open("config.yaml", "r") as f:
-                cfg = yaml.safe_load(f)
-            mysql = cfg["mysql"]
-            return create_engine(
-                f"mysql+pymysql://{mysql['user']}:{mysql['password']}@"
-                f"{mysql['host']}/{mysql['database']}"
-            )
+        db = st.secrets["mysql"]
+
+        engine = create_engine(
+            f"mysql+pymysql://{db['user']}:{db['password']}@"
+            f"{db['host']}:{db['port']}/{db['database']}"
+        )
+        return engine
+
     except Exception as e:
         st.error(f"❌ Database connection setup failed: {e}")
         raise
+
 
 # Create engine
 engine = get_engine()
